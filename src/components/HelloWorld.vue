@@ -324,11 +324,19 @@ export default {
 
         if (requires.indexOf(key) > -1) {
           center += `${skey} ${type} \`json:"${key},omitempty"\`\n`;
-          filtercenter += `	
-          if para.Query.${skey} != "" {
-				    opt.${skey}(para.Query.${skey})
-			    }
-          `;
+          if (type == "string") {
+            filtercenter += `	
+            if para.Query.${skey} != "" {
+              opt.${skey}(para.Query.${skey})
+            }
+            `;
+          } else {
+            filtercenter += `	
+            if para.Query.${skey} != 0 {
+              opt.${skey}(para.Query.${skey})
+            }
+            `;
+          }
           optCommon += `
             func (obj *${tableNameLower}Q) ${skey}(${skey} ${type}) *${tableNameLower}Q {
               fn := func(db *gorm.DB) *gorm.DB {
