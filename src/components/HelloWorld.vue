@@ -76,7 +76,7 @@ export default {
   },
   created() {},
   mounted() {
-    this.sqlchange(this.sqlinput)
+    this.sqlchange(this.sqlinput);
     this.schemaKey = Date.now();
   },
   methods: {
@@ -147,7 +147,76 @@ export default {
       const properties = v.properties;
       const tableName = toCamelCase(v.title);
       const tableNameLower = lowerCase(tableName);
+      var enumUpdate = ``;
+      var enumdefine = ``;
       var paramsheader = `
+    type ${tableNameLower}Q struct {
+      Mgr  *${tableName}Mgr
+      opts []GormOptionFunc
+    }
+
+    func (obj *${tableName}Mgr) Q() *${tableNameLower}Q {
+      return &${tableNameLower}Q{
+        Mgr: obj,
+      }
+    }
+
+    // QueryDefault 查询列表
+    func (obj *${tableNameLower}Q) List(ctx context.Context, value interface{}) (int64, error) {
+      var cnt int64
+      obj.Query(ctx).Offset(-1).Find(value).Count(&cnt)
+      err := obj.Query(ctx).Order("update_time desc").Find(value).Error
+      return cnt, err
+    }
+
+    //QueryDefault 查询单个
+    func (obj *${tableNameLower}Q) One(ctx context.Context, value interface{}) error {
+      Q := obj.Query(ctx)
+      cache_key := ""
+      // 缓存只适用于单行全列的情况
+      if k, _ := Q.InstanceGet("cache_key"); len(obj.opts) == 1 && k != nil {
+        cache_key = utils.AsString(k)
+        Q = Q.Select("*")
+      }
+      return obj.Mgr.Cache.Query(ctx, cache_key, value, func(ctx context.Context) error {
+        err := Q.First(value).Error
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+          return errors.ErrIdCanNotFound
+        }
+        return err
+      })
+    }
+
+    func (obj *${tableNameLower}Q) Query(ctx context.Context) *gorm.DB {
+      db := obj.Mgr.DB.WithContext(ctx).Model(&${tableName}{})
+      for _, f := range obj.opts {
+        db = f(db)
+      }
+      return db
+    }
+
+    func (obj *${tableNameLower}Q) Select(strings ...string) *${tableNameLower}Q {
+      fn := func(db *gorm.DB) *gorm.DB {
+        if len(strings) > 0 {
+          var ss []string
+          for _, s := range strings {
+            ss = append(ss, obj.Mgr.PreTableName(s))
+          }
+          db = db.Select(ss)
+        }
+        return db
+      }
+      obj.opts = append(obj.opts, fn)
+      return obj
+    }
+
+      type ${tableName}ReqParams struct {
+        Query    *${tableName}Params \`json:"query,omitempty"\`
+        Export   bool           \`json:"export,omitempty"\`
+        Fields   []string       \`json:"fields,omitempty"\`
+        PageNum  int            \`json:"page_num,omitempty"\`
+        PageSize int            \`json:"page_size,omitempty"\`
+      }
       type ${tableName}Params struct {\n`;
       var center = ``;
       var paramstail = `}`;
@@ -159,22 +228,63 @@ export default {
 		        opt.Select(para.Fields...)
 		        opt.Pagination(para)
 		        if para.Query != nil {
-      `
+      `;
       var filtercenter = ``;
       var filtertail = `}}
       return opt}`;
+
+      var primary = ``;
+      Object.keys(properties).forEach(function (key) {
+        const o = properties[key];
+        const skey = toCamelCase(key);
+        if (Object.prototype.hasOwnProperty.call(o, "$comment")) {
+          primary = skey;
+        }
+      });
 
       Object.keys(properties).forEach(function (key) {
         const o = properties[key];
         const skey = toCamelCase(key);
         const type = typeMap(o.type);
+        if (
+          Object.prototype.hasOwnProperty.call(o, "enum") &&
+          o.enum.length > 0
+        ) {
+          const enumlist = o.enum;
+          const enumdesc = o.enumDesc;
+          var enumbegin = `
+          type ${skey} ${type} 
+            const (
+          `;
+          var enumcenter = ``;
+          var enumend = `)`;
+          enumdesc.split("\n").forEach(function (value, index) {
+            const v = enumlist[index];
+            var s = `
+              ${skey}${value} ${skey} = ${v} \n
+            `;
+            var f = `
+              func (g ${skey}) ${value}() bool {
+                	return g == ${skey}${value}
+              } \n
+              func (obj *${tableName}Mgr) ${value}(ctx context.Context, id int64) error {
+              	return obj.Updates(ctx, &${tableName}{${skey}: ${skey}${value}}, obj.Q().${primary}(id))
+              } \n
+            `;
+            console.log(value);
+            enumcenter += s;
+            enumUpdate += f;
+          });
+          enumdefine += enumbegin + enumcenter + enumend;
+        }
+
         if (key.indexOf("_time") > -1) {
           center += `${skey}Interval []interface{} \`json:"${key}|interval,omitempty"\`\n`;
           filtercenter += `	
           if len(para.Query.${skey}Interval) > 0 {
 				    opt.${skey}Interval(para.Query.${skey}Interval)
 			    }
-          `  
+          `;
           optCommon += `
             func (obj *${tableNameLower}Q) ${skey}(interval []interface{}) *${tableNameLower}Q {
               fn := func(db *gorm.DB) *gorm.DB {
@@ -192,13 +302,13 @@ export default {
           `;
         }
 
-        if (key.indexOf("_id") > -1  || key == "id") {
+        if (key.indexOf("_id") > -1 || key == "id") {
           center += `${skey}In []${type} \`json:"${key}|in,omitempty"\`\n`;
           filtercenter += `	
           if len(para.Query.${skey}In) > 0 {
 				    opt.${skey}In(para.Query.${skey}In...)
 			    }
-          `  
+          `;
           optCommon += `
             func (obj *${tableNameLower}Q) ${skey}In(${skey}s ...${type}) *${tableNameLower}Q {
               	fn := func(db *gorm.DB) *gorm.DB {
@@ -218,7 +328,7 @@ export default {
           if para.Query.${skey} != "" {
 				    opt.${skey}(para.Query.${skey})
 			    }
-          `  
+          `;
           optCommon += `
             func (obj *${tableNameLower}Q) ${skey}(${skey} ${type}) *${tableNameLower}Q {
               fn := func(db *gorm.DB) *gorm.DB {
@@ -236,7 +346,7 @@ export default {
             if para.Query.${skey}Like != "" {
               opt.${skey}Like(para.Query.${skey}Like)
             }
-            `  
+            `;
             optCommon += `
             func (obj *${tableNameLower}Q) ${skey}Like(${skey} ${type}) *${tableNameLower}Q {
               fn := func(db *gorm.DB) *gorm.DB {
@@ -251,8 +361,17 @@ export default {
           }
         }
       });
-      this.output = paramsheader + center + paramstail + 
-      "\n" + optCommon + filterHeader + filtercenter + filtertail;
+      this.output =
+        enumdefine +
+        enumUpdate +
+        paramsheader +
+        center +
+        paramstail +
+        "\n" +
+        optCommon +
+        filterHeader +
+        filtercenter +
+        filtertail;
     },
   },
 };
