@@ -286,7 +286,7 @@ export default {
 			    }
           `;
           optCommon += `
-            func (obj *${tableNameLower}Q) ${skey}(interval []interface{}) *${tableNameLower}Q {
+            func (obj *${tableNameLower}Q) ${skey}Interval(interval []interface{}) *${tableNameLower}Q {
               fn := func(db *gorm.DB) *gorm.DB {
                 	db = db.Clauses(
                       TimeStampDate{
