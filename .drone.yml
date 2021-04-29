@@ -1,0 +1,10 @@
+kind: pipeline
+type: docker
+name: MyJsonGen
+
+step:
+  - name: run
+    command:
+      - docker-compose down
+      - docker-compose build
+      - docker-compose up -d

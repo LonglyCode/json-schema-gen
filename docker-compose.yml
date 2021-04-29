@@ -1,0 +1,11 @@
+version: "3.2"
+services:
+
+  json-gen:
+    build:
+      context: ./
+    container_name: json-gen
+    restart: always
+    ports:
+      - '8777:8000'
+    command: [ 'nginx-debug', '-g', 'daemon off;' ]
