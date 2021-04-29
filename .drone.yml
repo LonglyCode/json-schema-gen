@@ -3,8 +3,14 @@ type: docker
 name: MyJsonGen
 
 step:
-  - name: run
-    command:
-      - docker-compose down
-      - docker-compose build
-      - docker-compose up -d
+- name: run
+  command:
+    - docker-compose down
+    - docker-compose build
+    - docker-compose up -d
+  when:
+    branch:
+    - master
+    event:
+    - push
+    - tag
